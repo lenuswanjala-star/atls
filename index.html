@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Deleted Gmail Viewer</title>
+  <title>View Deleted Gmail</title>
 </head>
 <body>
-  <h2>View Deleted Conversation</h2>
+  <h2>Deleted Gmail Viewer</h2>
   <button onclick="handleAuthClick()">Sign in & Show Deleted Emails</button>
   <pre id="output">Not signed in yet.</pre>
 
@@ -51,14 +51,13 @@
           return;
         }
 
-        // Fetch each message detail
         let results = "";
         for (let msg of messages) {
           const detail = await gapi.client.gmail.users.messages.get({
             userId: "me",
             id: msg.id
           });
-          results += detail.result.snippet + "\n\n";
+          results += "📩 " + detail.result.snippet + "\n\n";
         }
         document.getElementById("output").innerText = results;
 
@@ -72,4 +71,3 @@
   <script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
 </body>
 </html>
-
