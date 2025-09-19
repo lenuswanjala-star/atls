@@ -1,146 +1,133 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>Gmail Messages Viewer</title>
+<meta charset="UTF-8">
+<title>Deleted Gmail Messages Viewer</title>
+<script src="https://apis.google.com/js/api.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; }
+  button { margin: 5px; padding: 10px; }
+  .email { border-bottom: 1px solid #ccc; padding: 10px 0; }
+  .subject { font-weight: bold; }
+  .from { color: #555; }
+  .snippet { margin-top: 5px; }
+</style>
 </head>
 <body>
-<h2>Gmail Messages from isiham.mahibu@mpesafoundationacademy.ac.ke</h2>
-<button onclick="trySampleRequest();">Sign in with Google</button>
-<div id="messages"></div>
+<h1>Deleted Gmail Messages Viewer</h1>
+<button id="authorize_button">Sign in with Google</button>
+<button id="signout_button" style="display:none;">Sign Out</button>
+<div id="content"></div>
 
 <script>
-  var YOUR_CLIENT_ID = '788099682177-40c5sl6rrmtqcuiq2feqdnldgqedvp3i.apps.googleusercontent.com';
-  var YOUR_REDIRECT_URI = 'https://lenuswanjala-star.github.io/oauth2callback';
-  var TARGET_EMAIL = 'isiham.mahibu@mpesafoundationacademy.ac.ke';
+const CLIENT_ID = 'YOUR_CLIENT_ID_HERE'; // Replace with your OAuth Client ID
+const SCOPES = 'https://www.googleapis.com/auth/gmail.readonly';
 
-  var fragmentString = location.hash.substring(1);
-  var params = {};
-  var regex = /([^&=]+)=([^&]*)/g, m;
-  while (m = regex.exec(fragmentString)) {
-    params[decodeURIComponent(m[1])] = decodeURIComponent(m[2]);
-  }
+let tokenClient;
+let gapiInited = false;
+let gisInited = false;
 
-  if (Object.keys(params).length > 0 && params['state']) {
-    if (params['state'] === localStorage.getItem('state')) {
-      localStorage.setItem('oauth2-test-params', JSON.stringify(params));
-      trySampleRequest();
-    } else {
-      console.log('State mismatch. Possible CSRF attack');
+// Load GAPI client
+function gapiLoaded() {
+    gapi.load('client', initializeGapiClient);
+}
+
+async function initializeGapiClient() {
+    await gapi.client.init({
+        discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest']
+    });
+    gapiInited = true;
+    maybeEnableButtons();
+}
+
+// Initialize Google Identity Services
+function gisLoaded() {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: SCOPES,
+        callback: '', 
+    });
+    gisInited = true;
+    maybeEnableButtons();
+}
+
+function maybeEnableButtons() {
+    if (gapiInited && gisInited) {
+        document.getElementById('authorize_button').style.display = 'block';
     }
-  }
+}
 
-  function generateCryptoRandomState() {
-    const randomValues = new Uint32Array(2);
-    window.crypto.getRandomValues(randomValues);
-    const utf8Encoder = new TextEncoder();
-    const utf8Array = utf8Encoder.encode(String.fromCharCode.apply(null, randomValues));
-    return btoa(String.fromCharCode.apply(null, utf8Array))
-      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  }
-
-  function trySampleRequest() {
-    var params = JSON.parse(localStorage.getItem('oauth2-test-params'));
-    if (params && params['access_token']) {
-      fetchGmailMessages(params['access_token']);
-    } else {
-      oauth2SignIn();
-    }
-  }
-
-  function oauth2SignIn() {
-    var state = generateCryptoRandomState();
-    localStorage.setItem('state', state);
-
-    var oauth2Endpoint = 'https://accounts.google.com/o/oauth2/v2/auth';
-    var form = document.createElement('form');
-    form.setAttribute('method', 'GET');
-    form.setAttribute('action', oauth2Endpoint);
-
-    var params = {
-      'client_id': YOUR_CLIENT_ID,
-      'redirect_uri': YOUR_REDIRECT_URI,
-      'scope': 'https://www.googleapis.com/auth/gmail.readonly',
-      'state': state,
-      'include_granted_scopes': 'true',
-      'response_type': 'token'
+// Sign in
+document.getElementById('authorize_button').onclick = () => {
+    tokenClient.callback = async (resp) => {
+        if (resp.error) throw(resp);
+        document.getElementById('authorize_button').style.display = 'none';
+        document.getElementById('signout_button').style.display = 'block';
+        await listDeletedMessages();
     };
+    tokenClient.requestAccessToken();
+};
 
-    for (var p in params) {
-      var input = document.createElement('input');
-      input.setAttribute('type', 'hidden');
-      input.setAttribute('name', p);
-      input.setAttribute('value', params[p]);
-      form.appendChild(input);
+// Sign out
+document.getElementById('signout_button').onclick = () => {
+    google.accounts.oauth2.revoke(tokenClient.access_token);
+    document.getElementById('content').innerHTML = '';
+    document.getElementById('authorize_button').style.display = 'block';
+    document.getElementById('signout_button').style.display = 'none';
+};
+
+// Fetch deleted emails from Trash
+async function listDeletedMessages() {
+    const response = await gapi.client.gmail.users.messages.list({
+        userId: 'me',
+        labelIds: ['TRASH'],
+        maxResults: 10
+    });
+
+    const messages = response.result.messages || [];
+    const contentDiv = document.getElementById('content');
+    contentDiv.innerHTML = '<h2>Deleted Messages:</h2>';
+
+    if (messages.length === 0) {
+        contentDiv.innerHTML += 'No deleted messages found.';
+        return;
     }
 
-    document.body.appendChild(form);
-    form.submit();
-  }
+    for (let msg of messages) {
+        const msgDetail = await gapi.client.gmail.users.messages.get({
+            userId: 'me',
+            id: msg.id,
+            format: 'full'
+        });
 
-  function base64Decode(str) {
-    str = str.replace(/-/g, '+').replace(/_/g, '/');
-    return decodeURIComponent(atob(str).split('').map(function(c) {
-      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-    }).join(''));
-  }
+        const headers = msgDetail.result.payload.headers;
+        const subject = headers.find(h => h.name === 'Subject')?.value || '(No Subject)';
+        const from = headers.find(h => h.name === 'From')?.value || '(Unknown Sender)';
+        let body = '';
 
-  async function fetchGmailMessages(accessToken) {
-    try {
-      const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=50', {
-        headers: { 'Authorization': 'Bearer ' + accessToken }
-      });
-      const data = await res.json();
-      const messagesDiv = document.getElementById('messages');
-      messagesDiv.innerHTML = '';
-
-      if (data.messages && data.messages.length > 0) {
-        for (let msg of data.messages) {
-          const msgRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full`, {
-            headers: { 'Authorization': 'Bearer ' + accessToken }
-          });
-          const msgData = await msgRes.json();
-
-          const headers = msgData.payload.headers;
-          const from = headers.find(h => h.name === 'From')?.value || 'Unknown';
-          if (!from.includes(TARGET_EMAIL)) continue; // skip other emails
-
-          const subject = headers.find(h => h.name === 'Subject')?.value || '(No subject)';
-          const date = headers.find(h => h.name === 'Date')?.value || '';
-
-          let body = '';
-          if (msgData.payload.parts) {
-            const part = msgData.payload.parts.find(p => p.mimeType === 'text/html');
-            if (part && part.body && part.body.data) {
-              body = base64Decode(part.body.data);
-            } else {
-              const plain = msgData.payload.parts.find(p => p.mimeType === 'text/plain');
-              if (plain && plain.body && plain.body.data) {
-                body = '<pre>' + base64Decode(plain.body.data) + '</pre>';
-              }
+        if (msgDetail.result.payload.parts) {
+            // Get the plain text part
+            const part = msgDetail.result.payload.parts.find(p => p.mimeType === 'text/plain');
+            if (part && part.body.data) {
+                body = atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'));
             }
-          } else if (msgData.payload.body && msgData.payload.body.data) {
-            body = base64Decode(msgData.payload.body.data);
-          }
-
-          const div = document.createElement('div');
-          div.innerHTML = `
-            <strong>From:</strong> ${from}<br>
-            <strong>Subject:</strong> ${subject}<br>
-            <strong>Date:</strong> ${date}<br>
-            <div>${body}</div>
-            <hr>
-          `;
-          messagesDiv.appendChild(div);
+        } else if (msgDetail.result.payload.body.data) {
+            body = atob(msgDetail.result.payload.body.data.replace(/-/g, '+').replace(/_/g, '/'));
         }
-        if (messagesDiv.innerHTML === '') messagesDiv.textContent = 'No messages found from ' + TARGET_EMAIL;
-      } else {
-        messagesDiv.textContent = 'No messages found.';
-      }
-    } catch (err) {
-      console.error('Error fetching Gmail messages:', err);
+
+        contentDiv.innerHTML += `
+            <div class="email">
+                <div class="subject">Subject: ${subject}</div>
+                <div class="from">From: ${from}</div>
+                <div class="snippet">${body || '(No content)'}</div>
+            </div>
+        `;
     }
-  }
+}
 </script>
+
+<script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+<script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
 </body>
 </html>
