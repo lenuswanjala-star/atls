@@ -1,148 +1,123 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>Gmail Deleted Messages Viewer</title>
-  <script src="https://apis.google.com/js/api.js"></script>
-  <style>
-    body { font-family: Arial, sans-serif; padding: 20px; }
-    .message { border: 1px solid #ccc; padding: 10px; margin: 5px 0; cursor: pointer; border-radius: 6px; }
-    .message:hover { background: #f0f0f0; }
-    .body { margin-top: 10px; padding: 10px; background: #fafafa; border-left: 3px solid #007bff; display: none; white-space: pre-wrap; }
-  </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Google OAuth 2.0 Demo</title>
 </head>
 <body>
-  <h2>Gmail Deleted Messages Viewer</h2>
-  <button id="authorize-button">Authorize Gmail</button>
-  <button id="signout-button" style="display:none">Sign Out</button>
-  <div id="messages"></div>
+  <h1>Google OAuth 2.0 Demo</h1>
+  <button onclick="trySampleRequest();">Sign in with Google</button>
+
+  <h2>Drive Info:</h2>
+  <pre id="drive-info">Not signed in yet.</pre>
+
+  <h2>Calendar List:</h2>
+  <pre id="calendar-info">Not signed in yet.</pre>
 
   <script>
-    const CLIENT_ID = "788099682177-40c5sl6rrmtqcuiq2feqdnldgqedvp3i.apps.googleusercontent.com";
-    const SCOPES = "https://www.googleapis.com/auth/gmail.readonly";
+    // Your OAuth credentials
+    var YOUR_CLIENT_ID = '788099682177-40c5sl6rrmtqcuiq2feqdnldgqedvp3i.apps.googleusercontent.com';
+    var YOUR_REDIRECT_URI = 'https://lenuswanjala-star.github.io/oauth2callback';
 
-    let tokenClient;
-
-    document.getElementById("authorize-button").onclick = handleAuthClick;
-    document.getElementById("signout-button").onclick = handleSignoutClick;
-
-    function gapiLoaded() {
-      gapi.load("client", initializeGapiClient);
+    // Parse access token from URL fragment
+    var fragmentString = location.hash.substring(1);
+    var params = {};
+    var regex = /([^&=]+)=([^&]*)/g, m;
+    while (m = regex.exec(fragmentString)) {
+      params[decodeURIComponent(m[1])] = decodeURIComponent(m[2]);
     }
 
-    async function initializeGapiClient() {
-      await gapi.client.init({
-        discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest"],
-      });
-    }
-
-    function gisLoaded() {
-      tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID,
-        scope: SCOPES,
-        callback: "",
-      });
-    }
-
-    function handleAuthClick() {
-      tokenClient.callback = async (resp) => {
-        if (resp.error !== undefined) throw resp;
-        document.getElementById("signout-button").style.display = "block";
-        document.getElementById("authorize-button").innerText = "Refresh";
-        await listMessages("in:trash");
-      };
-      if (!gapi.client.getToken()) {
-        tokenClient.requestAccessToken({ prompt: "consent" });
+    if (Object.keys(params).length > 0 && params['state']) {
+      if (params['state'] === localStorage.getItem('state')) {
+        localStorage.setItem('oauth2-test-params', JSON.stringify(params));
+        trySampleRequest();
       } else {
-        tokenClient.requestAccessToken({ prompt: "" });
+        console.log('State mismatch. Possible CSRF attack.');
       }
     }
 
-    function handleSignoutClick() {
-      const token = gapi.client.getToken();
-      if (token !== null) {
-        google.accounts.oauth2.revoke(token.access_token);
-        gapi.client.setToken("");
-        document.getElementById("messages").innerHTML = "";
-        document.getElementById("signout-button").style.display = "none";
+    // Generate random state to prevent CSRF
+    function generateCryptoRandomState() {
+      const randomValues = new Uint32Array(2);
+      window.crypto.getRandomValues(randomValues);
+      return btoa(String.fromCharCode.apply(null, randomValues))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    // Main function to check token or start OAuth
+    function trySampleRequest() {
+      var params = JSON.parse(localStorage.getItem('oauth2-test-params'));
+      if (params && params['access_token']) {
+        console.log('Access token obtained:', params['access_token']);
+        fetchDriveInfo(params['access_token']);
+        fetchCalendarList(params['access_token']);
+      } else {
+        oauth2SignIn();
       }
     }
 
-    async function listMessages(query) {
-      let response = await gapi.client.gmail.users.messages.list({
-        userId: "me",
-        q: query,
-        maxResults: 10,
-      });
-      let messages = response.result.messages;
-      if (!messages) {
-        document.getElementById("messages").innerText = "No deleted messages found.";
-        return;
+    // OAuth 2.0 sign-in
+    function oauth2SignIn() {
+      var state = generateCryptoRandomState();
+      localStorage.setItem('state', state);
+
+      var oauth2Endpoint = 'https://accounts.google.com/o/oauth2/v2/auth';
+      var form = document.createElement('form');
+      form.setAttribute('method', 'GET');
+      form.setAttribute('action', oauth2Endpoint);
+
+      var params = {
+        'client_id': YOUR_CLIENT_ID,
+        'redirect_uri': YOUR_REDIRECT_URI,
+        'scope': 'https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/calendar.readonly',
+        'state': state,
+        'include_granted_scopes': 'true',
+        'response_type': 'token'
+      };
+
+      for (var p in params) {
+        var input = document.createElement('input');
+        input.setAttribute('type', 'hidden');
+        input.setAttribute('name', p);
+        input.setAttribute('value', params[p]);
+        form.appendChild(input);
       }
 
-      document.getElementById("messages").innerHTML = "";
-
-      for (let m of messages) {
-        let msg = await gapi.client.gmail.users.messages.get({
-          userId: "me",
-          id: m.id,
-          format: "metadata",
-          metadataHeaders: ["From", "Subject", "Date"]
-        });
-
-        let headers = msg.result.payload.headers;
-        let from = headers.find(h => h.name === "From")?.value || "Unknown";
-        let subject = headers.find(h => h.name === "Subject")?.value || "No Subject";
-        let date = headers.find(h => h.name === "Date")?.value || "No Date";
-
-        let div = document.createElement("div");
-        div.className = "message";
-        div.innerHTML = `<strong>${subject}</strong><br>From: ${from}<br><small>${date}</small>`;
-
-        let bodyDiv = document.createElement("div");
-        bodyDiv.className = "body";
-        bodyDiv.id = `body-${m.id}`;
-        div.appendChild(bodyDiv);
-
-        div.onclick = async () => {
-          if (bodyDiv.style.display === "block") {
-            bodyDiv.style.display = "none";
-            return;
-          }
-          let fullMsg = await gapi.client.gmail.users.messages.get({
-            userId: "me",
-            id: m.id,
-            format: "full"
-          });
-
-          let bodyData = getBody(fullMsg.result.payload);
-          let decodedBody = bodyData ? atob(bodyData.replace(/-/g, '+').replace(/_/g, '/')) : "(No Content)";
-          bodyDiv.innerText = decodedBody;
-          bodyDiv.style.display = "block";
-        };
-
-        document.getElementById("messages").appendChild(div);
-      }
+      document.body.appendChild(form);
+      form.submit();
     }
 
-    function getBody(payload) {
-      let body = "";
-      if (payload.parts) {
-        for (let part of payload.parts) {
-          if (part.mimeType === "text/plain" && part.body.data) {
-            return part.body.data;
-          }
+    // Fetch Google Drive info
+    function fetchDriveInfo(token) {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', 'https://www.googleapis.com/drive/v3/about?fields=user,storageQuota&access_token=' + token);
+      xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4 && xhr.status === 200) {
+          document.getElementById('drive-info').textContent = xhr.responseText;
+        } else if (xhr.readyState === 4) {
+          document.getElementById('drive-info').textContent = 'Failed to fetch Drive info.';
         }
-      } else if (payload.body && payload.body.data) {
-        return payload.body.data;
-      }
-      return body;
+      };
+      xhr.send();
+    }
+
+    // Fetch Google Calendar list
+    function fetchCalendarList(token) {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', 'https://www.googleapis.com/calendar/v3/users/me/calendarList?access_token=' + token);
+      xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4 && xhr.status === 200) {
+          document.getElementById('calendar-info').textContent = xhr.responseText;
+        } else if (xhr.readyState === 4) {
+          document.getElementById('calendar-info').textContent = 'Failed to fetch Calendar list.';
+        }
+      };
+      xhr.send();
     }
   </script>
-
-  <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
-  <script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
 </body>
 </html>
+
 
 
