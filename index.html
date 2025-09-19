@@ -1,123 +1,146 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Google OAuth 2.0 Demo</title>
+  <meta charset="utf-8">
+  <title>Gmail Messages Viewer</title>
 </head>
 <body>
-  <h1>Google OAuth 2.0 Demo</h1>
-  <button onclick="trySampleRequest();">Sign in with Google</button>
+<h2>Gmail Messages from isiham.mahibu@mpesafoundationacademy.ac.ke</h2>
+<button onclick="trySampleRequest();">Sign in with Google</button>
+<div id="messages"></div>
 
-  <h2>Drive Info:</h2>
-  <pre id="drive-info">Not signed in yet.</pre>
+<script>
+  var YOUR_CLIENT_ID = '788099682177-40c5sl6rrmtqcuiq2feqdnldgqedvp3i.apps.googleusercontent.com';
+  var YOUR_REDIRECT_URI = 'https://lenuswanjala-star.github.io/oauth2callback';
+  var TARGET_EMAIL = 'isiham.mahibu@mpesafoundationacademy.ac.ke';
 
-  <h2>Calendar List:</h2>
-  <pre id="calendar-info">Not signed in yet.</pre>
+  var fragmentString = location.hash.substring(1);
+  var params = {};
+  var regex = /([^&=]+)=([^&]*)/g, m;
+  while (m = regex.exec(fragmentString)) {
+    params[decodeURIComponent(m[1])] = decodeURIComponent(m[2]);
+  }
 
-  <script>
-    // Your OAuth credentials
-    var YOUR_CLIENT_ID = '788099682177-40c5sl6rrmtqcuiq2feqdnldgqedvp3i.apps.googleusercontent.com';
-    var YOUR_REDIRECT_URI = 'https://lenuswanjala-star.github.io/oauth2callback';
+  if (Object.keys(params).length > 0 && params['state']) {
+    if (params['state'] === localStorage.getItem('state')) {
+      localStorage.setItem('oauth2-test-params', JSON.stringify(params));
+      trySampleRequest();
+    } else {
+      console.log('State mismatch. Possible CSRF attack');
+    }
+  }
 
-    // Parse access token from URL fragment
-    var fragmentString = location.hash.substring(1);
-    var params = {};
-    var regex = /([^&=]+)=([^&]*)/g, m;
-    while (m = regex.exec(fragmentString)) {
-      params[decodeURIComponent(m[1])] = decodeURIComponent(m[2]);
+  function generateCryptoRandomState() {
+    const randomValues = new Uint32Array(2);
+    window.crypto.getRandomValues(randomValues);
+    const utf8Encoder = new TextEncoder();
+    const utf8Array = utf8Encoder.encode(String.fromCharCode.apply(null, randomValues));
+    return btoa(String.fromCharCode.apply(null, utf8Array))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function trySampleRequest() {
+    var params = JSON.parse(localStorage.getItem('oauth2-test-params'));
+    if (params && params['access_token']) {
+      fetchGmailMessages(params['access_token']);
+    } else {
+      oauth2SignIn();
+    }
+  }
+
+  function oauth2SignIn() {
+    var state = generateCryptoRandomState();
+    localStorage.setItem('state', state);
+
+    var oauth2Endpoint = 'https://accounts.google.com/o/oauth2/v2/auth';
+    var form = document.createElement('form');
+    form.setAttribute('method', 'GET');
+    form.setAttribute('action', oauth2Endpoint);
+
+    var params = {
+      'client_id': YOUR_CLIENT_ID,
+      'redirect_uri': YOUR_REDIRECT_URI,
+      'scope': 'https://www.googleapis.com/auth/gmail.readonly',
+      'state': state,
+      'include_granted_scopes': 'true',
+      'response_type': 'token'
+    };
+
+    for (var p in params) {
+      var input = document.createElement('input');
+      input.setAttribute('type', 'hidden');
+      input.setAttribute('name', p);
+      input.setAttribute('value', params[p]);
+      form.appendChild(input);
     }
 
-    if (Object.keys(params).length > 0 && params['state']) {
-      if (params['state'] === localStorage.getItem('state')) {
-        localStorage.setItem('oauth2-test-params', JSON.stringify(params));
-        trySampleRequest();
-      } else {
-        console.log('State mismatch. Possible CSRF attack.');
-      }
-    }
+    document.body.appendChild(form);
+    form.submit();
+  }
 
-    // Generate random state to prevent CSRF
-    function generateCryptoRandomState() {
-      const randomValues = new Uint32Array(2);
-      window.crypto.getRandomValues(randomValues);
-      return btoa(String.fromCharCode.apply(null, randomValues))
-        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-    }
+  function base64Decode(str) {
+    str = str.replace(/-/g, '+').replace(/_/g, '/');
+    return decodeURIComponent(atob(str).split('').map(function(c) {
+      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+    }).join(''));
+  }
 
-    // Main function to check token or start OAuth
-    function trySampleRequest() {
-      var params = JSON.parse(localStorage.getItem('oauth2-test-params'));
-      if (params && params['access_token']) {
-        console.log('Access token obtained:', params['access_token']);
-        fetchDriveInfo(params['access_token']);
-        fetchCalendarList(params['access_token']);
-      } else {
-        oauth2SignIn();
-      }
-    }
+  async function fetchGmailMessages(accessToken) {
+    try {
+      const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=50', {
+        headers: { 'Authorization': 'Bearer ' + accessToken }
+      });
+      const data = await res.json();
+      const messagesDiv = document.getElementById('messages');
+      messagesDiv.innerHTML = '';
 
-    // OAuth 2.0 sign-in
-    function oauth2SignIn() {
-      var state = generateCryptoRandomState();
-      localStorage.setItem('state', state);
+      if (data.messages && data.messages.length > 0) {
+        for (let msg of data.messages) {
+          const msgRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full`, {
+            headers: { 'Authorization': 'Bearer ' + accessToken }
+          });
+          const msgData = await msgRes.json();
 
-      var oauth2Endpoint = 'https://accounts.google.com/o/oauth2/v2/auth';
-      var form = document.createElement('form');
-      form.setAttribute('method', 'GET');
-      form.setAttribute('action', oauth2Endpoint);
+          const headers = msgData.payload.headers;
+          const from = headers.find(h => h.name === 'From')?.value || 'Unknown';
+          if (!from.includes(TARGET_EMAIL)) continue; // skip other emails
 
-      var params = {
-        'client_id': YOUR_CLIENT_ID,
-        'redirect_uri': YOUR_REDIRECT_URI,
-        'scope': 'https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/calendar.readonly',
-        'state': state,
-        'include_granted_scopes': 'true',
-        'response_type': 'token'
-      };
+          const subject = headers.find(h => h.name === 'Subject')?.value || '(No subject)';
+          const date = headers.find(h => h.name === 'Date')?.value || '';
 
-      for (var p in params) {
-        var input = document.createElement('input');
-        input.setAttribute('type', 'hidden');
-        input.setAttribute('name', p);
-        input.setAttribute('value', params[p]);
-        form.appendChild(input);
-      }
+          let body = '';
+          if (msgData.payload.parts) {
+            const part = msgData.payload.parts.find(p => p.mimeType === 'text/html');
+            if (part && part.body && part.body.data) {
+              body = base64Decode(part.body.data);
+            } else {
+              const plain = msgData.payload.parts.find(p => p.mimeType === 'text/plain');
+              if (plain && plain.body && plain.body.data) {
+                body = '<pre>' + base64Decode(plain.body.data) + '</pre>';
+              }
+            }
+          } else if (msgData.payload.body && msgData.payload.body.data) {
+            body = base64Decode(msgData.payload.body.data);
+          }
 
-      document.body.appendChild(form);
-      form.submit();
-    }
-
-    // Fetch Google Drive info
-    function fetchDriveInfo(token) {
-      var xhr = new XMLHttpRequest();
-      xhr.open('GET', 'https://www.googleapis.com/drive/v3/about?fields=user,storageQuota&access_token=' + token);
-      xhr.onreadystatechange = function() {
-        if (xhr.readyState === 4 && xhr.status === 200) {
-          document.getElementById('drive-info').textContent = xhr.responseText;
-        } else if (xhr.readyState === 4) {
-          document.getElementById('drive-info').textContent = 'Failed to fetch Drive info.';
+          const div = document.createElement('div');
+          div.innerHTML = `
+            <strong>From:</strong> ${from}<br>
+            <strong>Subject:</strong> ${subject}<br>
+            <strong>Date:</strong> ${date}<br>
+            <div>${body}</div>
+            <hr>
+          `;
+          messagesDiv.appendChild(div);
         }
-      };
-      xhr.send();
+        if (messagesDiv.innerHTML === '') messagesDiv.textContent = 'No messages found from ' + TARGET_EMAIL;
+      } else {
+        messagesDiv.textContent = 'No messages found.';
+      }
+    } catch (err) {
+      console.error('Error fetching Gmail messages:', err);
     }
-
-    // Fetch Google Calendar list
-    function fetchCalendarList(token) {
-      var xhr = new XMLHttpRequest();
-      xhr.open('GET', 'https://www.googleapis.com/calendar/v3/users/me/calendarList?access_token=' + token);
-      xhr.onreadystatechange = function() {
-        if (xhr.readyState === 4 && xhr.status === 200) {
-          document.getElementById('calendar-info').textContent = xhr.responseText;
-        } else if (xhr.readyState === 4) {
-          document.getElementById('calendar-info').textContent = 'Failed to fetch Calendar list.';
-        }
-      };
-      xhr.send();
-    }
-  </script>
+  }
+</script>
 </body>
 </html>
-
-
-
