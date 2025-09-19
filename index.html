@@ -1,73 +1,79 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>View Deleted Gmail</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gmail Deleted Messages Viewer</title>
+  <script src="https://apis.google.com/js/api.js"></script>
+  <script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
 </head>
 <body>
-  <h2>Deleted Gmail Viewer</h2>
-  <button onclick="handleAuthClick()">Sign in & Show Deleted Emails</button>
-  <pre id="output">Not signed in yet.</pre>
+  <h1>Gmail Deleted Messages Viewer</h1>
+  <button id="authorize_button">Sign in with Google</button>
+  <pre id="content"></pre>
 
   <script>
     const CLIENT_ID = "788099682177-40c5sl6rrmtqcuiq2feqdnldgqedvp3i.apps.googleusercontent.com";
-    const API_KEY = "AIzaSyCeH-qWjz6dlIsa_WKFcVzJ-WAmOPF-AF8";
     const SCOPES = "https://www.googleapis.com/auth/gmail.readonly";
 
     let tokenClient;
-
-    function gapiLoaded() {
-      gapi.load('client', initializeGapiClient);
-    }
-
-    async function initializeGapiClient() {
-      await gapi.client.init({
-        apiKey: API_KEY,
-        discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest"],
-      });
-    }
 
     function gisLoaded() {
       tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: CLIENT_ID,
         scope: SCOPES,
-        callback: listTrashMessages,
+        callback: handleTokenResponse
       });
+      document.getElementById("authorize_button").onclick = () => {
+        tokenClient.requestAccessToken();
+      };
     }
 
-    function handleAuthClick() {
-      tokenClient.requestAccessToken();
+    async function handleTokenResponse(response) {
+      gapi.load('client', async () => {
+        await gapi.client.init({
+          apiKey: "AIzaSyCeH-qWjz6dlIsa_WKFcVzJ-WAmOPF-AF8",
+          discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest"]
+        });
+
+        gapi.client.setToken({ access_token: response.access_token });
+        listTrashMessages();
+      });
     }
 
     async function listTrashMessages() {
       try {
-        const response = await gapi.client.gmail.users.messages.list({
+        const resp = await gapi.client.gmail.users.messages.list({
           userId: "me",
-          q: "in:trash from:isiham.mahibu@mpesafoundationacademy.ac.ke"
+          q: "in:trash"
         });
 
-        const messages = response.result.messages;
-        if (!messages || messages.length === 0) {
-          document.getElementById("output").innerText = "No deleted messages found.";
+        const messages = resp.result.messages || [];
+        if (messages.length === 0) {
+          document.getElementById("content").textContent = "No deleted messages found.";
           return;
         }
 
-        let results = "";
+        let output = "";
         for (let msg of messages) {
-          const detail = await gapi.client.gmail.users.messages.get({
+          const msgData = await gapi.client.gmail.users.messages.get({
             userId: "me",
             id: msg.id
           });
-          results += "📩 " + detail.result.snippet + "\n\n";
-        }
-        document.getElementById("output").innerText = results;
 
+          const headers = msgData.result.payload.headers;
+          const from = headers.find(h => h.name === "From")?.value || "Unknown";
+          const subject = headers.find(h => h.name === "Subject")?.value || "No subject";
+          output += `From: ${from}\nSubject: ${subject}\n\n`;
+        }
+
+        document.getElementById("content").textContent = output;
       } catch (err) {
-        document.getElementById("output").innerText = "Error: " + err.message;
+        console.error(err);
+        document.getElementById("content").textContent = "Error fetching messages. Check console.";
       }
     }
   </script>
-
-  <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
-  <script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
 </body>
 </html>
+
