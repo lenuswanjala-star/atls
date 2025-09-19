@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Deleted Gmail Viewer</title>
+  <title>Deleted Emails from Eugene</title>
   <script src="https://apis.google.com/js/api.js"></script>
 </head>
 <body>
@@ -31,18 +31,18 @@
     }
 
     function handleAuthClick() {
-      gapi.auth2.getAuthInstance().signIn().then(listDeletedEmails);
+      gapi.auth2.getAuthInstance().signIn().then(listDeletedFromEugene);
     }
 
-    function listDeletedEmails() {
+    function listDeletedFromEugene() {
       gapi.client.gmail.users.messages.list({
         userId: 'me',
-        labelIds: ['TRASH'], // Only deleted emails
+        labelIds: ['TRASH'], // search only deleted messages
         q: 'from:eugene.omboga@mpesafoundationacademy.ac.ke'
       }).then(response => {
         const messages = response.result.messages || [];
         if (messages.length === 0) {
-          emailsDiv.innerHTML = 'No deleted emails found from Eugene.';
+          emailsDiv.innerHTML = '<p>No deleted emails found from Eugene.</p>';
           return;
         }
 
@@ -57,14 +57,18 @@
 
             if (payload.parts) {
               payload.parts.forEach(p => {
-                if (p.body && p.body.data) body += atob(p.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+                if (p.body && p.body.data) {
+                  body += atob(p.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+                }
               });
             } else if (payload.body && payload.body.data) {
               body = atob(payload.body.data.replace(/-/g, '+').replace(/_/g, '/'));
             }
 
             const emailElement = document.createElement('div');
-            emailElement.innerHTML = `<hr><pre>${body}</pre>`;
+            emailElement.innerHTML = `<hr><strong>Subject:</strong> ${
+              (payload.headers.find(h => h.name === "Subject") || {}).value || "(No Subject)"
+            }<br><pre>${body}</pre>`;
             emailsDiv.appendChild(emailElement);
           });
         });
@@ -75,5 +79,6 @@
   </script>
 </body>
 </html>
+
 
 
