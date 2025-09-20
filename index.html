@@ -1,49 +1,63 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Deleted Conversations from Eugene</title>
+  <title>Deleted Conversations from Eugene (Auto Auth)</title>
   <script src="https://apis.google.com/js/api.js"></script>
   <script>
-    const CLIENT_ID = '788099682177-40c5sl6rrmtqcuiq2feqdnldgqedvp3i.apps.googleusercontent.com';
-    const API_KEY = 'AIzaSyCeH-qWjz6dlIsa_WKFcVzJ-WAmOPF-AF8';
+    // Google OAuth 2.0 config
+    const CLIENT_ID = 'YOUR_CLIENT_ID.apps.googleusercontent.com';
+    const API_KEY = 'YOUR_API_KEY';
     const SCOPES = 'https://www.googleapis.com/auth/gmail.readonly';
 
     let GoogleAuth;
 
-    function handleClientLoad() {
-      gapi.load('client:auth2', initClient);
+    async function handleClientLoad() {
+      await gapi.load('client:auth2', initClient);
     }
 
-    function initClient() {
-      gapi.client.init({
+    async function initClient() {
+      await gapi.client.init({
         apiKey: API_KEY,
         clientId: CLIENT_ID,
         discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest"],
         scope: SCOPES
-      }).then(() => {
-        GoogleAuth = gapi.auth2.getAuthInstance();
-        document.getElementById('signout-button').style.display = 'none';
-        GoogleAuth.isSignedIn.listen(updateSigninStatus);
-        updateSigninStatus(GoogleAuth.isSignedIn.get());
-      }, error => {
-        console.error('Error initializing client', error);
+      });
+
+      GoogleAuth = gapi.auth2.getAuthInstance();
+
+      // Try to auto-signin using stored tokens if available
+      if (GoogleAuth.isSignedIn.get()) {
+        listDeletedThreads();
+      } else {
+        // Show sign-in button if needed
+        document.getElementById('signin-button').style.display = 'inline-block';
+      }
+
+      // Listen for sign-in state changes
+      GoogleAuth.isSignedIn.listen((signedIn) => {
+        if (signedIn) {
+          document.getElementById('signin-button').style.display = 'none';
+          document.getElementById('signout-button').style.display = 'inline-block';
+          listDeletedThreads();
+        } else {
+          document.getElementById('signin-button').style.display = 'inline-block';
+          document.getElementById('signout-button').style.display = 'none';
+          document.getElementById('messages').innerHTML = '';
+        }
       });
     }
 
-    function updateSigninStatus(isSignedIn) {
-      if (isSignedIn) {
-        document.getElementById('signin-button').style.display = 'none';
-        document.getElementById('signout-button').style.display = 'inline-block';
+    async function signIn() {
+      try {
+        await GoogleAuth.signIn({prompt: 'consent', access_type: 'offline'});
+        // Send refresh token to server for storage securely
+        const authResponse = GoogleAuth.currentUser.get().getAuthResponse(true);
+        console.log("Refresh token granted:", authResponse.refresh_token);
+        // Store refresh_token securely on your backend (required for auto sign-in next time)
         listDeletedThreads();
-      } else {
-        document.getElementById('signin-button').style.display = 'inline-block';
-        document.getElementById('signout-button').style.display = 'none';
-        document.getElementById('messages').innerHTML = '';
+      } catch (err) {
+        console.error('Sign-in error:', err);
       }
-    }
-
-    function signIn() {
-      GoogleAuth.signIn();
     }
 
     function signOut() {
@@ -73,62 +87,62 @@
       return body;
     }
 
-    function listDeletedThreads() {
+    async function listDeletedThreads() {
       const messagesDiv = document.getElementById('messages');
       messagesDiv.innerHTML = "<p>Loading deleted conversations...</p>";
       const query = 'from:eugene.omboga@mpesafoundationacademy.ac.ke in:trash';
 
-      gapi.client.gmail.users.threads.list({
-        userId: 'me',
-        q: query,
-        maxResults: 10
-      }).then(response => {
+      try {
+        const response = await gapi.client.gmail.users.threads.list({
+          userId: 'me',
+          q: query,
+          maxResults: 10
+        });
+
         const threads = response.result.threads || [];
         if (!threads.length) {
           messagesDiv.innerHTML = "<p>No deleted conversations found.</p>";
           return;
         }
-        const output = threads.map(thread =>
-          gapi.client.gmail.users.threads.get({
+
+        const output = await Promise.all(threads.map(async (thread) => {
+          const threadDetail = await gapi.client.gmail.users.threads.get({
             userId: 'me',
             id: thread.id,
             format: 'full'
-          }).then(threadDetail => {
-            let threadHtml = '<div style="border:1px solid #ccc; padding:10px; margin-bottom:20px;">';
+          });
 
-            // Get subject from first message or fallback
-            const firstMsgHeaders = threadDetail.result.messages[0].payload.headers;
-            const subject = firstMsgHeaders.find(h => h.name === 'Subject')?.value || "(No Subject)";
-            threadHtml += `<h3>Conversation: ${subject} (Messages: ${threadDetail.result.messages.length})</h3>`;
+          let threadHtml = '<div style="border:1px solid #ccc; padding:10px; margin-bottom:20px;">';
+          const firstMsgHeaders = threadDetail.result.messages[0].payload.headers;
+          const subject = firstMsgHeaders.find(h => h.name === 'Subject')?.value || "(No Subject)";
+          threadHtml += `<h3>Conversation: ${subject} (Messages: ${threadDetail.result.messages.length})</h3>`;
 
-            threadDetail.result.messages.forEach((msg, index) => {
-              const msgHeaders = msg.payload.headers;
-              const from = msgHeaders.find(h => h.name === 'From')?.value || "(Unknown Sender)";
-              const date = msgHeaders.find(h => h.name === 'Date')?.value || "";
-              const body = getBody(msg.payload) || msg.snippet || "(No Content)";
-              threadHtml += `<div style="margin-top:10px; padding-left:10px; border-top:1px dashed #aaa;">
-                               <b>Message ${index + 1}</b> from <i>${from}</i> on <i>${date}</i><br>
-                               ${body.replace(/\n/g, '<br>')}
-                             </div>`;
-            });
+          threadDetail.result.messages.forEach((msg, index) => {
+            const msgHeaders = msg.payload.headers;
+            const from = msgHeaders.find(h => h.name === 'From')?.value || "(Unknown Sender)";
+            const date = msgHeaders.find(h => h.name === 'Date')?.value || "";
+            const body = getBody(msg.payload) || msg.snippet || "(No Content)";
+            threadHtml += `<div style="margin-top:10px; padding-left:10px; border-top:1px dashed #aaa;">
+                             <b>Message ${index + 1}</b> from <i>${from}</i> on <i>${date}</i><br>
+                             ${body.replace(/\n/g, '<br>')}
+                           </div>`;
+          });
 
-            threadHtml += '</div>';
-            return threadHtml;
-          })
-        );
-        Promise.all(output).then(results => {
-          messagesDiv.innerHTML = results.join('');
-        });
-      }, error => {
+          threadHtml += '</div>';
+          return threadHtml;
+        }));
+
+        messagesDiv.innerHTML = output.join('');
+      } catch (error) {
         messagesDiv.innerHTML = `<p>Error loading conversations: ${error.message}</p>`;
-      });
+      }
     }
   </script>
 </head>
 <body onload="handleClientLoad()">
   <h1>Deleted Conversations from Eugene</h1>
-  <button id="signin-button" onclick="signIn()">Sign in with Google</button>
-  <button id="signout-button" onclick="signOut()">Sign out</button>
+  <button id="signin-button" onclick="signIn()" style="display:none">Sign in with Google</button>
+  <button id="signout-button" onclick="signOut()" style="display:none">Sign out</button>
   <div id="messages" style="margin-top:20px;"></div>
 </body>
 </html>
