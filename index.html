@@ -1,85 +1,95 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <title>Deleted Gmail Messages Viewer</title>
-    <script src="https://apis.google.com/js/api.js"></script>
-    <script>
-      const CLIENT_ID = '788099682177-40c5sl6rrmtqcuiq2feqdnldgqedvp3i.apps.googleusercontent.com';
-      const API_KEY = 'AIzaSyCeH-qWjz6dlIsa_WKFcVzJ-WAmOPF-AF8';
-      const SCOPES = 'https://www.googleapis.com/auth/gmail.readonly';
+<head>
+  <title>Deleted Emails from Eugene</title>
+  <script src="https://apis.google.com/js/api.js"></script>
+  <script>
+    const CLIENT_ID = '788099682177-40c5sl6rrmtqcuiq2feqdnldgqedvp3i.apps.googleusercontent.com';
+    const API_KEY = 'AIzaSyCeH-qWjz6dlIsa_WKFcVzJ-WAmOPF-AF8';
+    const SCOPES = 'https://www.googleapis.com/auth/gmail.readonly';
 
-      function handleClientLoad() {
-        gapi.load('client:auth2', initClient);
-      }
+    function handleClientLoad() {
+      gapi.load('client:auth2', initClient);
+    }
 
-      function initClient() {
-        gapi.client.init({
-          apiKey: API_KEY,
-          clientId: CLIENT_ID,
-          discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest"],
-          scope: SCOPES
-        }).then(() => {
-          gapi.auth2.getAuthInstance().signIn().then(listDeletedMessages);
-        });
-      }
+    function initClient() {
+      gapi.client.init({
+        apiKey: API_KEY,
+        clientId: CLIENT_ID,
+        discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest"],
+        scope: SCOPES
+      });
+    }
 
-      function decodeBase64(str) {
-        return decodeURIComponent(atob(str.replace(/-/g, '+').replace(/_/g, '/')).split('').map(function(c) {
-          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-        }).join(''));
-      }
+    function signIn() {
+      gapi.auth2.getAuthInstance().signIn().then(listDeletedMessages);
+    }
 
-      function getBody(payload) {
-        let body = '';
-        if (payload.parts) {
-          payload.parts.forEach(part => {
-            if (part.mimeType === 'text/plain' && part.body.data) {
-              body += decodeBase64(part.body.data);
-            } else if (part.parts) {
-              body += getBody(part);
-            }
-          });
-        } else if (payload.body && payload.body.data) {
-          body += decodeBase64(payload.body.data);
-        }
-        return body;
-      }
+    function decodeBase64(str) {
+      return decodeURIComponent(atob(str.replace(/-/g, '+').replace(/_/g, '/')).split('').map(function(c) {
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+      }).join(''));
+    }
 
-      function listDeletedMessages() {
-        const query = "from:eugene.omboga@mpesafoundationacademy.ac.ke in:trash";
-
-        gapi.client.gmail.users.messages.list({
-          userId: 'me',
-          q: query,
-          maxResults: 20
-        }).then(response => {
-          const messages = response.result.messages || [];
-          if (!messages.length) {
-            document.body.innerHTML = "<p>No deleted messages found.</p>";
-            return;
+    function getBody(payload) {
+      let body = '';
+      if (payload.parts) {
+        payload.parts.forEach(part => {
+          if (part.mimeType === 'text/plain' && part.body.data) {
+            body += decodeBase64(part.body.data);
+          } else if (part.parts) {
+            body += getBody(part);
           }
+        });
+      } else if (payload.body && payload.body.data) {
+        body += decodeBase64(payload.body.data);
+      }
+      return body;
+    }
 
-          const output = messages.map(msg => {
-            return gapi.client.gmail.users.messages.get({
-              userId: 'me',
-              id: msg.id,
-              format: 'full'
-            }).then(msgDetail => {
-              const headers = msgDetail.result.payload.headers;
-              const subject = headers.find(h => h.name === 'Subject')?.value || "(No Subject)";
-              const body = getBody(msgDetail.result.payload) || "(No Content)";
-              return `<div style="margin-bottom:20px;"><b>${subject}</b><br>${body.replace(/\n/g,'<br>')}</div>`;
-            });
-          });
+    function listDeletedMessages() {
+      const messagesDiv = document.getElementById('messages');
+      messagesDiv.innerHTML = "<p>Loading deleted messages...</p>";
 
-          Promise.all(output).then(results => {
-            document.body.innerHTML = results.join("<hr>");
+      const query = "from:eugene.omboga@mpesafoundationacademy.ac.ke in:trash";
+
+      gapi.client.gmail.users.messages.list({
+        userId: 'me',
+        q: query,
+        maxResults: 20
+      }).then(response => {
+        const messages = response.result.messages || [];
+        if (!messages.length) {
+          messagesDiv.innerHTML = "<p>No deleted messages found.</p>";
+          return;
+        }
+
+        const output = messages.map(msg => {
+          return gapi.client.gmail.users.messages.get({
+            userId: 'me',
+            id: msg.id,
+            format: 'full'
+          }).then(msgDetail => {
+            const headers = msgDetail.result.payload.headers;
+            const subject = headers.find(h => h.name === 'Subject')?.value || "(No Subject)";
+            const body = getBody(msgDetail.result.payload) || "(No Content)";
+            return `<div style="margin-bottom:20px;">
+                      <b>${subject}</b><br>
+                      ${body.replace(/\n/g,'<br>')}
+                    </div>`;
           });
         });
-      }
-    </script>
-  </head>
-  <body onload="handleClientLoad()">
-    <h1>Deleted Messages Viewer</h1>
-  </body>
+
+        Promise.all(output).then(results => {
+          messagesDiv.innerHTML = results.join("<hr>");
+        });
+      });
+    }
+  </script>
+</head>
+<body onload="handleClientLoad()">
+  <h1>Deleted Emails from Eugene</h1>
+  <button onclick="signIn()">Sign in with Google</button>
+  <div id="messages" style="margin-top:20px;"></div>
+</body>
 </html>
